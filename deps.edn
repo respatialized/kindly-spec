@@ -1,0 +1,8 @@
+{:aliases {:nextjournal/clerk {:exec-args  {:paths
+                                            ["notebooks/hello_garden.clj"]}
+                               :exec-fn    nextjournal.clerk/build!
+                               :extra-deps {io.github.nextjournal/clerk
+                                            {:mvn/version "0.17.1102"}}
+                               :nextjournal.clerk/aliases [:dev]}}
+ :deps    {metosin/malli      {:mvn/version "0.19.1"}
+           org.scicloj/kindly {:mvn/version "4-beta17"}}}

@@ -1,7 +1,12 @@
+^{:nextjournal.clerk/visibility {:code :hide :result :hide}}
 (ns ^{:nextjournal.clerk/toc true} net.respatialized.kindly-spec
   (:require [nextjournal.clerk :as clerk]
+            [nextjournal.clerk.viewer :as-alias v]
             [malli.core :as m]
             [malli.util :as mu]
+            [malli.experimental.describe :as malli.describe]
+            [malli.dot]
+            [malli.plantuml]
             [scicloj.kindly.v4.api :as kindly]
             [scicloj.kindly.v4.kind :as kind]))
 
@@ -43,62 +48,13 @@
 ;; of a kindly value for equality checks.
 
 
-;; ## The specification
+;; # Specification (v1)
 
-(def Form
-  "The map representation of a Clojure form & value used by Kindly"
-  (m/schema
-   [:map
-    {:description
-     "The map representation of a Clojure form & value used by Kindly"}
-    [:code
-     {:description "The source code of a form that produced a Kindly value"}
-     :string]
-    [:form {:description "The Clojure form that produced a Kindly value"} :any]
-    [:value {:description "The Kindly value returned by a Clojure form"} :any]
-    [:kind {:description "The Kindly kind annotation for the value"} :keyword]
-    [:kindly/hide-code
-     {:description "Whether to hide the source expression in the output"
-      :optional    true} :boolean]
-    [:kindly/options
-     {:description "Additional options for kindly forms" :optional true}
-     [:maybe
-      [:map
-       ;; :hide-value is an undocumented option from the kindly-render
-       ;; library but it make sense to include it here because the
-       ;; capability of hiding results is also required by the template
-       ;; implementation
-       [:hide-value
-        {:optional true :description "Whether to hide the value in the output."}
-        :boolean]]]]]
-   #_[:schema {:registry {::form :map}}]))
+;; In order to build the schema, we will take a compositional approach,
+;; starting
+;; from the necessary metadata.
 
-(def Fragment
-  "A Kindly fragment, a special Kindly value consisting of a vector of multiple kindly values."
-  (mu/merge Form
-            (m/schema
-             [:map
-              {:description
-               "A Kindly fragment consisting of multiple kindly values"}
-              [:kind {:description "The kindly type (fragment)"} [:= :fragment]]
-              [:value {:description "The vector of kindly values"}
-               [:sequential Form]]])))
-
-
-
-(comment
-  (kind/vector [3])
-  (kind/vector 3)
-  (= (kind/code 3) (kind/code [3]))
-  (kind/fragment [(kind/code 'a) (kind/hiccup [:div "example"])]))
-
-
-(comment
-  (clerk/serve! {:browse true}))
-;; # Specification 2
-
-;; We will take a compositional approach, starting from the necessary metadata.
-
+^{::clerk/visibility {:result :hide}}
 (def Kind-Properties
   (m/schema
    [:map
@@ -123,49 +79,72 @@
          "Whether the value has been 'wrapped' in a vector to carry Kindly metadata"}
         :boolean]]]]]))
 
+^{::clerk/visibility {:result :hide}}
 (def kindly-properties? (m/validator Kind-Properties))
 
+^{::clerk/visibility {:result :hide}}
 (defn kindly-metadata?
   [v]
   (and (instance? clojure.lang.IObj v) (kindly-properties? (meta v))))
 
-(kindly-metadata? ^{:kind :vector} [1 2 3])
 
+^{::clerk/visibility {:result :hide}}
 (def Wrapped-Value-Properties
   (mu/merge
    Kind-Properties
    [:map
     {:description
-     "A value carrying metadata indicating that it has been wrapped to support kindly metadata"}
+     "A vector containing a single value, with metadata indicating that the value is wrapped"}
     [:kindly/options [:map [:wrapped-value [:= true]]]]]))
 
+^{::clerk/visibility {:result :hide}}
 (defn wrapped-value?
   [v]
   (and (vector? v) (m/validate Wrapped-Value-Properties (meta v))))
 
-(m/schema [:and [:fn wrapped-value?] [:vector {:min 1 :max 1} :any]])
+;; With these helper functions and map schemas in place, defining the schema
+;; becomes simpler. Here's a first-pass example:
 
+;; This specification is not of Kindly values as they actually exist; the
+;; `"wrapped-value"` schema, for example, carries the necessary metadata to
+;; show that it is distinct from a single-element vector with Kindly metadata.
+
+^{::clerk/visibility {:result :hide}}
 (def Kindly-Value
   (m/schema
    [:schema
     {:registry
      ;; start from the top and proceed downward
-     {::kindly        [:or [:ref ::meta-value] [:ref ::wrapped-value]
-                       [:ref ::kindly-map] #_[:ref ::fragment]]
-      ::meta-value    [:and [:fn kindly-metadata?] [:ref ::value]]
-      ::wrapped-value [:and [:fn wrapped-value?] [:vector {:min 1 :max 1} :any]]
-      ::kindly-map    (mu/merge Kind-Properties
-                                [:map [:code :string] [:form :any]
-                                 [:value :any #_[:ref ::value]]])
-      #_#_::fragment
-        [:or [:and [:fn kindly-metadata?] [:vector [:ref ::kindly]]]
-         (mu/merge Kind-Properties
-                   [:map [:code :string] [:form :any] [:kind [:= :fragment]]
-                    [:value [:vector [:ref ::kindly]]]])]
-      ::value
-      ;; a value is a kindly or plain Clojure value
-      [:or [:ref ::kindly] :any]}} ::kindly]))
+     {"kindly"        [:or [:ref "meta-value"] [:ref "wrapped-value"]
+                       [:ref "kindly-map"] [:ref "fragment"]]
+      "meta-value"    [:and [:fn kindly-metadata?] [:ref "value"]]
+      "wrapped-value" [:and [:fn wrapped-value?] [:vector {:min 1 :max 1} :any]]
+      "kindly-map"    (mu/merge Kind-Properties
+                                ;; the ref needs to be "pulled in" to the
+                                ;; subschema here, apparently
+                                [:map {:registry {"value" [:ref "value"]}}
+                                 [:code :string] [:form :any]
+                                 [:value [:ref "value"]]])
+      "fragment"      [:or
+                       [:and [:fn kindly-metadata?] [:vector [:ref "kindly"]]]
+                       (mu/merge Kind-Properties
+                                 [:map {:registry {"kindly" [:ref "kindly"]}}
+                                  [:code :string] [:form :any]
+                                  [:kind [:= :fragment]]
+                                  [:value [:vector [:ref "kindly"]]]])]
+      "value"
+      ;; a value is a Kindly or plain Clojure value.
+      [:or :any
+       ;; putting the ref first means the base case doesn't get found and
+       ;; the stack blows up
+       [:ref "kindly"]]}} "kindly"]))
 
+
+#_(clerk/md (malli.describe/describe Kindly-Value))
+
+;; We can check validation against a nested example:
+
+^{::clerk/visibility {:result :hide}}
 (def example-nested-value
   ^{:kind :fragment}
   [^{:kind :hiccup}
@@ -175,3 +154,23 @@
    ^{:kind :code} '(+ 3 4 5 6)
    {:kind :md :value "_More_ markdown text inside of a Kindly map."}
    ^{:kind :edn} {:a 1 :b 2 :description "EDN map"}])
+
+(m/validate Kindly-Value example-nested-value)
+
+;; # Follow-up work
+
+;; 1. Define transformers or functions that "canonicalize" a Kindly value into
+;; the map representation
+;; 2. Define an equality function in light of the canonical form
+;; 3. Define generators for each of these subschemas and use them to build
+;; generative tests of arbitrarily nested Kindly data structures
+
+
+^{::clerk/visibility {:code :hide :result :hide}}
+(comment
+  (kind/vector [3])
+  (kind/vector 3)
+  (= (kind/code 3) (kind/code [3]))
+  (kind/fragment [(kind/code 'a) (kind/hiccup [:div "example"])])
+  (clerk/serve! {:browse true})
+  (clerk/show! *ns*))

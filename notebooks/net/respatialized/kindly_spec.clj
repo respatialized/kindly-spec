@@ -164,7 +164,8 @@
 ;; values** may themselves contain **Kindly values** at arbitrary levels.
 ;; A Clojure value is either:
 ;;    1. A Clojure value without Kindly metadata
-;;    2. A **Kindly value**.
+;;    2. A Clojure collection containing **Clojure values**.
+;;    3. A **Kindly value**.
 
 ;; This definition is self-referential, but because it contains the base case
 ;; of plain Clojure data structures in 2.1, it can cover both simple and
@@ -172,7 +173,7 @@
 ;; out" in ordinary Clojure values.
 
 ;; [^order-dependence]: The order of these cases _does_ matter for `malli`; if
-;; the recursive case (2.2) is specified before the base case, attempts to
+;; the recursive case (2.3) is specified before the base case, attempts to
 ;; validate will not terminate and cause the stack to overflow.
 
 ;; This specification is not of Kindly values as they actually exist; the

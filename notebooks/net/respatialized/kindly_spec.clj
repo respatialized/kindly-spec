@@ -152,8 +152,8 @@
 
 ;; 1. A **Kindly value** is one of four things:
 ;;    1. A **meta value** - A **Clojure value** with Kindly-specific metadata.
-;;    2. A **wrapped value** - A plain Clojure in a single-element vector with
-;; Kindly metadata.
+;;    2. A **wrapped value** - A plain Clojure value in a single-element vector
+;;    with Kindly metadata.
 ;;    3. A **Kindly map** - A plain Clojure map containing the same keys as
 ;;    Kindly metadata maps. The **Clojure value** is contained in this map
 ;;    under the `:value` key.

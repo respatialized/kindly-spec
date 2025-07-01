@@ -142,7 +142,8 @@
        {:description
         "Kindly values are themselves Clojure values,
          but not all Clojure values are Kindly values."}
-       :any [:map-of [:ref :clojure/value] [:ref :clojure/value]]
+       [:and :any #_[:not [:ref :kindly/value]]]
+       [:map-of [:ref :clojure/value] [:ref :clojure/value]]
        [:sequential [:ref :clojure/value]] [:set [:ref :clojure/value]]
        ;; putting the refs later ensures the base case gets found and
        ;; the stack doesn't blow up
@@ -174,7 +175,7 @@
 
 ;; [^order-dependence]: The order of these cases _does_ matter for `malli`; if
 ;; the recursive case (2.3) is specified before the base case, attempts to
-;; validate will not terminate and cause the stack to overflow.
+;; validate will not terminate.
 
 ;; This specification is not of Kindly values as they actually exist; the
 ;; `:kindly/wrapped-value` schema, for example, carries the necessary metadata
@@ -205,6 +206,9 @@
 ;; 2. Should a fragment be restricted to being only explicit Kindly values? Or
 ;; should it allow for "plain" Clojure values to be displayed using the
 ;; implementation defaults?
+;; 3. How should the schema specify "value that is not a Kindly value?" Trying
+;; to use `[:and [:not [:ref :kindly/value]] :any]` creates a non-terminating
+;; schema definition.
 
 ;; # Follow-up work
 

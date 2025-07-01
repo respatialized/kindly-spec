@@ -105,42 +105,80 @@
 ;; With these helper functions and map schemas in place, defining the schema
 ;; becomes simpler. Here's a first-pass example:
 
-;; This specification is not of Kindly values as they actually exist; the
-;; `"wrapped-value"` schema, for example, carries the necessary metadata to
-;; show that it is distinct from a single-element vector with Kindly metadata.
-
 ^{::clerk/visibility {:result :hide}}
 (def Kindly-Value
   (m/schema
    [:schema
     {:registry
      ;; start from the top and proceed downward
-     {"kindly"        [:or [:ref "meta-value"] [:ref "wrapped-value"]
-                       [:ref "kindly-map"] [:ref "fragment"]]
-      "meta-value"    [:and [:fn kindly-metadata?] [:ref "value"]]
-      "wrapped-value" [:and [:fn wrapped-value?] [:vector {:min 1 :max 1} :any]]
-      "kindly-map"    (mu/merge Kind-Properties
-                                ;; the ref needs to be "pulled in" to the
-                                ;; subschema here, apparently
-                                [:map {:registry {"value" [:ref "value"]}}
-                                 [:code :string] [:form :any]
-                                 [:value [:ref "value"]]])
-      "fragment"      [:or
-                       [:and [:fn kindly-metadata?] [:vector [:ref "kindly"]]]
-                       (mu/merge Kind-Properties
-                                 [:map {:registry {"kindly" [:ref "kindly"]}}
-                                  [:code :string] [:form :any]
-                                  [:kind [:= :fragment]]
-                                  [:value [:vector [:ref "kindly"]]]])]
-      "value"
-      ;; a value is a Kindly or plain Clojure value.
-      [:or :any
-       ;; putting the ref first means the base case doesn't get found and
-       ;; the stack blows up
-       [:ref "kindly"]]}} "kindly"]))
+     {:kindly/value [:or {:description "A Kindly value"}
+                     [:ref :kindly/meta-value] [:ref :kindly/wrapped-val]
+                     [:ref :kindly/map] [:ref :kindly/fragment]]
+      :kindly/meta-value
+      [:and {:description "A value with Kindly-specific metadata"}
+       [:fn kindly-metadata?] [:ref :clojure/value] [:not [:ref :kindly/map]]]
+      :kindly/wrapped-val
+      [:and
+       {:description "A plain value wrapped in a vector with Kindly metadata"}
+       [:fn wrapped-value?] [:vector {:min 1 :max 1} :any]]
+      :kindly/map
+      (mu/merge Kind-Properties
+                ;; the ref needs to be "pulled in" to
+                ;; the subschema here, apparently
+                [:map
+                 {:registry    {:clojure/value [:ref :clojure/value]}
+                  :description "A Kindly value as a plain Clojure map"}
+                 [:code :string] [:form :any] [:value [:ref :clojure/value]]])
+      :kindly/fragment
+      [:or
+       {:description "A Kindly fragment contains a sequence of Kindly values"}
+       [:and [:fn kindly-metadata?] [:vector [:ref :kindly/value]]]
+       (mu/merge Kind-Properties
+                 [:map {:registry {:kindly/value [:ref :kindly/value]}}
+                  [:code :string] [:form :any] [:kind [:= :fragment]]
+                  [:value [:vector [:ref :kindly/value]]]])]
+      :clojure/value
+      [:or
+       {:description
+        "Kindly values are themselves Clojure values,
+         but not all Clojure values are Kindly values."}
+       :any [:map-of [:ref :clojure/value] [:ref :clojure/value]]
+       [:sequential [:ref :clojure/value]] [:set [:ref :clojure/value]]
+       ;; putting the refs later ensures the base case gets found and
+       ;; the stack doesn't blow up
+       [:ref :kindly/value]]}} :kindly/value]))
 
+;; From this, we can derive a basic natural-language description:
 
-#_(clerk/md (malli.describe/describe Kindly-Value))
+;; 1. A **Kindly value** is one of four things:
+;;    1. A **meta value** - A **Clojure value** with Kindly-specific metadata.
+;;    2. A **wrapped value** - A plain Clojure in a single-element vector with
+;; Kindly metadata.
+;;    3. A **Kindly map** - A plain Clojure map containing the same keys as
+;;    Kindly metadata maps. The **Clojure value** is contained in this map
+;;    under the `:value` key.
+;;    4. A **fragment** - A **Kindly value** whose **Clojure value** is a
+;; homogenous vector of **Kindly values**.
+
+;; 2. A **Clojure value** is the value that Kindly is annotating. **Clojure
+;; values** may themselves contain **Kindly values** at arbitrary levels.
+;; A Clojure value is either:
+;;    1. A Clojure value without Kindly metadata
+;;    2. A **Kindly value**.
+
+;; This definition is self-referential, but because it contains the base case
+;; of plain Clojure data structures in 2.1, it can cover both simple and
+;; arbitrarily complex Kindly values.[^order-dependence] It will always "bottom
+;; out" in ordinary Clojure values.
+
+;; [^order-dependence]: The order of these cases _does_ matter for `malli`; if
+;; the recursive case (2.2) is specified before the base case, attempts to
+;; validate will not terminate and cause the stack to overflow.
+
+;; This specification is not of Kindly values as they actually exist; the
+;; `:kindly/wrapped-value` schema, for example, carries the necessary metadata
+;; to show that it is distinct from a single-element vector with Kindly
+;; metadata. Kindly currently does not return values with this information.
 
 ;; We can check validation against a nested example:
 
@@ -157,6 +195,16 @@
 
 (m/validate Kindly-Value example-nested-value)
 
+
+;; ## Questions raised by this specification
+
+;; 1. A map representation of a Kindly value can itself carry Kindly metadata.
+;; Should the explicit map values take priority over the map's metadata? I
+;; believe the answer should be "yes."
+;; 2. Should a fragment be restricted to being only explicit Kindly values? Or
+;; should it allow for "plain" Clojure values to be displayed using the
+;; implementation defaults?
+
 ;; # Follow-up work
 
 ;; 1. Define transformers or functions that "canonicalize" a Kindly value into
@@ -164,6 +212,11 @@
 ;; 2. Define an equality function in light of the canonical form
 ;; 3. Define generators for each of these subschemas and use them to build
 ;; generative tests of arbitrarily nested Kindly data structures
+;; 4. Switch refs to
+;; [vars?](https://github.com/metosin/malli/?tab=readme-ov-file#var-registry)
+;; 5. "Inline" more of the helper definitions to create a self-contained schema
+;; 6. Specify that meta values are not also kindly maps
+
 
 
 ^{::clerk/visibility {:code :hide :result :hide}}

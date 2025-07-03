@@ -242,70 +242,108 @@
   (clerk/show! *ns*))
 
 
+
 ;; # Specification (v2)
 
+;; ## A custom `malli` Schema for metadata
 
-;; this function won't work; it erases too much information about the shape of
-;; the actual value to serve as a useful tool in specifying Kindly values
+;; As suggested on the Clojure slack, a new way of defining
+;; a schema on a value would be to [extend Malli to a new
+;; type](https://github.com/metosin/malli/?tab=readme-ov-file#custom-schema-types).
+;; The basic idea:
+;; **`[:meta ?schema]`**
+
+;; This schema can then be readily composed with other schemas using `:and`
+;; when necessary.
 
 
-;; file under "too clever for my own good"
-(defn kindly-multi-dispatch
-  "Either returns a map corresponding to the Kindly metadata keys or nil."
-  [value]
-  (select-keys (if (map? value) value (meta value)) [:kind :kindly/options]))
+(def Meta
+  (m/-simple-schema {:type    ::meta
+                     ;; TODO: fix compilation here
+                     :compile (fn [properties ?schema opts]
+                                (let [schema    (try (m/schema ?schema)
+                                                     (catch Exception e
+                                                       (m/-fail!
+                                                        ::invalid-schema
+                                                        {:schema ?schema})))
+                                      validator (m/validator schema)]
+                                  {:pred #(validator (meta %))}))}))
+;; these don't work
+(m/schema [::meta {} [:map [:k :keyword]] {}])
+(m/schema [Meta [:map [:k :keyword]]])
 
-;; `:multi` itself likely isn't appropriate for this problem. It dispatches
-;; on concrete values, but I need to dispatch on schema (which seems like
-;; the exact case for `:or`
+;; Initial thoughts:
 
-;; ^{::clerk/visibility {:result :hide}}
-;;   (def Kindly-Value-v2
-;;     (m/schema
-;;      [:schema
-;;       {:registry
-;;        ;; start from the top and proceed downward
-;;        {:kindly/value
-;;         #_[:or {:description "A Kindly value"} [:ref :kindly/meta-value]
-;;            [:ref :kindly/wrapped-val] [:ref :kindly/map]
-;;            [:ref :kindly/fragment]]
-;;         [:multi {:dispatch kindly-meta-dispatch} []
-;;          [nil #_[:ref :clojure/value] :any] [::m/default '???]]
-;;         :kindly/meta-value
-;;         [:and {:description "A value with Kindly-specific metadata"}
-;;          [:fn kindly-metadata?] [:ref :clojure/value] [:not [:ref
-;;          :kindly/map]]]
-;;         :kindly/wrapped-val
-;;         [:and
-;;          {:description "A plain value wrapped in a vector with Kindly
-;;          metadata"}
-;;          [:fn wrapped-value?] [:vector {:min 1 :max 1} :any]]
-;;         :kindly/map
-;;         (mu/merge Kind-Properties
-;;                   ;; the ref needs to be "pulled in" to
-;;                   ;; the subschema here, apparently
-;;                   [:map
-;;                    {:registry    {:clojure/value [:ref :clojure/value]}
-;;                     :description "A Kindly value as a plain Clojure map"}
-;;                    [:code :string] [:form :any] [:value [:ref
-;;                    :clojure/value]]])
-;;         :kindly/fragment
-;;         [:or
-;;          {:description "A Kindly fragment contains a sequence of Kindly
-;;          values"}
-;;          [:and [:fn kindly-metadata?] [:vector [:ref :kindly/value]]]
-;;          (mu/merge Kind-Properties
-;;                    [:map {:registry {:kindly/value [:ref :kindly/value]}}
-;;                     [:code :string] [:form :any] [:kind [:= :fragment]]
-;;                     [:value [:vector [:ref :kindly/value]]]])]
-;;         :clojure/value
-;;         [:or
-;;          {:description
-;;           "Kindly values are themselves Clojure values,
-;;          but not all Clojure values are Kindly values."}
-;;          [:and :any #_[:not [:ref :kindly/value]]]
-;;          [:map-of [:ref :clojure/value] [:ref :clojure/value]]
-;;          [:sequential [:ref :clojure/value]] [:set [:ref :clojure/value]]
-;;          ;; putting the refs later ensures the base case gets found and
-;;          ;; the stack doesn't blow up
-;;          [:ref :kindly/value]]}} :kindly/value]))
+^{::clerk/visibility {:code :hide :result :hide}}
+(comment
+ ;; ^{::clerk/visibility {:result :hide}}
+ ;;   (def Kindly-Value-v2
+ ;;     (m/schema
+ ;;      [:schema
+ ;;       {:registry
+ ;;        ;; start from the top and proceed downward
+ ;;        {:kindly/value
+ ;;         #_[:or {:description "A Kindly value"} [:ref
+ ;;         :kindly/meta-value]
+ ;;            [:ref :kindly/wrapped-val] [:ref :kindly/map]
+ ;;            [:ref :kindly/fragment]]
+ ;;         [:multi {:dispatch kindly-meta-dispatch} []
+ ;;          [nil #_[:ref :clojure/value] :any] [::m/default '???]]
+ ;;         :kindly/meta-value
+ ;;         [:and {:description "A value with Kindly-specific metadata"}
+ ;;          [:fn kindly-metadata?] [:ref :clojure/value] [:not [:ref
+ ;;          :kindly/map]]]
+ ;;         :kindly/wrapped-val
+ ;;         [:and
+ ;;          {:description "A plain value wrapped in a vector with Kindly
+ ;;          metadata"}
+ ;;          [:fn wrapped-value?] [:vector {:min 1 :max 1} :any]]
+ ;;         :kindly/map
+ ;;         (mu/merge Kind-Properties
+ ;;                   ;; the ref needs to be "pulled in" to
+ ;;                   ;; the subschema here, apparently
+ ;;                   [:map
+ ;;                    {:registry    {:clojure/value [:ref :clojure/value]}
+ ;;                     :description "A Kindly value as a plain Clojure
+ ;;                     map"}
+ ;;                    [:code :string] [:form :any] [:value [:ref
+ ;;                    :clojure/value]]])
+ ;;         :kindly/fragment
+ ;;         [:or
+ ;;          {:description "A Kindly fragment contains a sequence of Kindly
+ ;;          values"}
+ ;;          [:and [:fn kindly-metadata?] [:vector [:ref :kindly/value]]]
+ ;;          (mu/merge Kind-Properties
+ ;;                    [:map {:registry {:kindly/value [:ref
+ ;;                    :kindly/value]}}
+ ;;                     [:code :string] [:form :any] [:kind [:= :fragment]]
+ ;;                     [:value [:vector [:ref :kindly/value]]]])]
+ ;;         :clojure/value
+ ;;         [:or
+ ;;          {:description
+ ;;           "Kindly values are themselves Clojure values,
+ ;;          but not all Clojure values are Kindly values."}
+ ;;          [:and :any #_[:not [:ref :kindly/value]]]
+ ;;          [:map-of [:ref :clojure/value] [:ref :clojure/value]]
+ ;;          [:sequential [:ref :clojure/value]] [:set [:ref
+ ;;          :clojure/value]]
+ ;;          ;; putting the refs later ensures the base case gets found and
+ ;;          ;; the stack doesn't blow up
+ ;;          [:ref :kindly/value]]}} :kindly/value]))
+)
+
+(comment
+  (m/validate [:multi {:dispatch (comp boolean meta)} [true vector?]
+               [false map?]]
+              (with-meta [1 2] {:some :thing}))
+  (m/validate [:multi {:dispatch (comp boolean meta)} [true vector?]
+               [false map?]]
+              (with-meta {1 2} {:some :thing}))
+  (m/validate [:multi {:dispatch (comp boolean meta)} [true vector?]
+               [false map?]]
+              {1 2})
+  (m/schema [:merge (m/form Kind-Properties)
+             [:map
+              {#_#_:registry {:clojure/value [:ref :clojure/value]}
+               :description "A Kindly value as a plain Clojure map"}
+              [:code :string] [:form :any] [:value :any]]]))

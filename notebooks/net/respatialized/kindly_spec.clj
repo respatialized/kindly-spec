@@ -256,21 +256,25 @@
 ;; This schema can then be readily composed with other schemas using `:and`
 ;; when necessary.
 
+(defn- compile-meta-schema
+  ([_properties [?schema] _opts]
+   (let [schema    (try (m/schema ?schema)
+                        (catch Exception e
+                          (m/-fail! ::invalid-schema {:schema ?schema})))
+         validator (m/validator schema)]
+     {:pred #(validator (meta %))})))
+
 
 (def Meta
-  (m/-simple-schema {:type    ::meta
+  (m/-simple-schema {:type    `Meta
                      ;; TODO: fix compilation here
-                     :compile (fn [properties ?schema opts]
-                                (let [schema    (try (m/schema ?schema)
-                                                     (catch Exception e
-                                                       (m/-fail!
-                                                        ::invalid-schema
-                                                        {:schema ?schema})))
-                                      validator (m/validator schema)]
-                                  {:pred #(validator (meta %))}))}))
-;; these don't work
-(m/schema [::meta {} [:map [:k :keyword]] {}])
-(m/schema [Meta [:map [:k :keyword]]])
+                     :min     1
+                     :max     1
+                     :compile compile-meta-schema}))
+
+
+(m/validate (m/schema [:and [:vector :int] [Meta [:map [:k :keyword]]]])
+            ^{:k :abc} [1])
 
 ;; Initial thoughts:
 

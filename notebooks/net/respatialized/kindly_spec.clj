@@ -256,83 +256,123 @@
 ;; This schema can then be readily composed with other schemas using `:and`
 ;; when necessary.
 
+(defn compile-meta-schema
+  ;; TODO: fix case of registry/props being passed in
+  ([properties [?schema] _opts]
+   (let [schema    (try (m/schema ?schema (select-keys properties [:registry]))
+                        (catch Exception e
+                          (m/-fail! ::invalid-schema
+                                    {:schema ?schema :properties properties})))
+         validator (m/validator schema)]
+     {:pred #(validator (meta %)) :properties properties})))
+
+;; this implementation of compile/simple-schema may not allow for `:ref`s from
+;; local registries; when it tries to compile the schema it cannot `:ref`
+;; schemas
+;; outside the lexical scope of the `compile-meta-schema` function.
+
+;; this is probably why other schemas that directly implement the
+;; `-into-schema`
+;; protocol have enormously long implementations; dereferencing the schemas
+;; appropriately sounds tricky!
+
+
+
 (def Meta
-  (m/-simple-schema {:type    `Meta
-                     :min     1
-                     :max     1
-                     :compile (fn compile-meta-schema
-                                ([_properties [?schema] _opts]
-                                 (let [schema    (try (m/schema ?schema)
-                                                      (catch Exception e
-                                                        (m/-fail!
-                                                         ::invalid-schema
-                                                         {:schema ?schema})))
-                                       validator (m/validator schema)]
-                                   {:pred #(validator (meta %))})))}))
+  (m/-simple-schema {:type `Meta :min 1 :max 1 :compile compile-meta-schema}))
 
 
 (m/validate (m/schema [:and [:vector :int] [Meta [:map [:k :keyword]]]])
             ^{:k :abc} [1])
 
-;; Initial thoughts:
+(m/validate (m/schema [:and [:vector :int]
+                       [Meta {:description "test"} [:map [:k :keyword]]]])
+            ^{:k :abc} [1])
 
-^{::clerk/visibility {:code :hide :result :hide}}
-(comment
- ;; ^{::clerk/visibility {:result :hide}}
- ;;   (def Kindly-Value-v2
- ;;     (m/schema
- ;;      [:schema
- ;;       {:registry
- ;;        ;; start from the top and proceed downward
- ;;        {:kindly/value
- ;;         #_[:or {:description "A Kindly value"} [:ref
- ;;         :kindly/meta-value]
- ;;            [:ref :kindly/wrapped-val] [:ref :kindly/map]
- ;;            [:ref :kindly/fragment]]
- ;;         [:multi {:dispatch kindly-meta-dispatch} []
- ;;          [nil #_[:ref :clojure/value] :any] [::m/default '???]]
- ;;         :kindly/meta-value
- ;;         [:and {:description "A value with Kindly-specific metadata"}
- ;;          [:fn kindly-metadata?] [:ref :clojure/value] [:not [:ref
- ;;          :kindly/map]]]
- ;;         :kindly/wrapped-val
- ;;         [:and
- ;;          {:description "A plain value wrapped in a vector with Kindly
- ;;          metadata"}
- ;;          [:fn wrapped-value?] [:vector {:min 1 :max 1} :any]]
- ;;         :kindly/map
- ;;         (mu/merge Kind-Properties
- ;;                   ;; the ref needs to be "pulled in" to
- ;;                   ;; the subschema here, apparently
- ;;                   [:map
- ;;                    {:registry    {:clojure/value [:ref :clojure/value]}
- ;;                     :description "A Kindly value as a plain Clojure
- ;;                     map"}
- ;;                    [:code :string] [:form :any] [:value [:ref
- ;;                    :clojure/value]]])
- ;;         :kindly/fragment
- ;;         [:or
- ;;          {:description "A Kindly fragment contains a sequence of Kindly
- ;;          values"}
- ;;          [:and [:fn kindly-metadata?] [:vector [:ref :kindly/value]]]
- ;;          (mu/merge Kind-Properties
- ;;                    [:map {:registry {:kindly/value [:ref
- ;;                    :kindly/value]}}
- ;;                     [:code :string] [:form :any] [:kind [:= :fragment]]
- ;;                     [:value [:vector [:ref :kindly/value]]]])]
- ;;         :clojure/value
- ;;         [:or
- ;;          {:description
- ;;           "Kindly values are themselves Clojure values,
- ;;          but not all Clojure values are Kindly values."}
- ;;          [:and :any #_[:not [:ref :kindly/value]]]
- ;;          [:map-of [:ref :clojure/value] [:ref :clojure/value]]
- ;;          [:sequential [:ref :clojure/value]] [:set [:ref
- ;;          :clojure/value]]
- ;;          ;; putting the refs later ensures the base case gets found and
- ;;          ;; the stack doesn't blow up
- ;;          [:ref :kindly/value]]}} :kindly/value]))
-)
+(def registry (merge (m/default-schemas) (mu/schemas)))
+
+^{::clerk/visibility {:result :hide}}
+(def Kindly-Value-v2
+  (m/schema
+   [:schema
+    {:registry
+     {:kindly/properties
+      (m/schema
+       [:map
+        {:description
+         "The properties required by Kindly, either as a map or in the form of metadata."}
+        [:kind {:description "The kind of the value"} :keyword]
+        [:kindly/hide-code
+         {:description "Whether to hide the source expression in the output"
+          :optional    true} :boolean]
+        [:kindly/options
+         {:description
+          "Additional options for the kind. May be kind-specific or general."
+          :optional true}
+         [:maybe
+          [:map
+           [:hide-value
+            {:optional    true
+             :description "Whether to hide the value in the output."} :boolean]
+           [:wrapped-value
+            {:optional true
+             :description
+             "Whether the value has been 'wrapped' in a vector to carry Kindly metadata"}
+            :boolean]]]]])
+      ;; start from the top and proceed downward
+      :kindly/value [:or {:description "A Kindly value"}
+                     [:ref :kindly/meta-value] #_[:ref :kindly/wrapped-val]
+                     #_[:ref :kindly/map] #_[:ref :kindly/fragment]]
+      :kindly/meta-value
+      [:and {:description "A value with Kindly-specific metadata"}
+       [Meta
+        {:registry {:kindly/properties (m/deref [:ref :kindly/properties])}}
+        :map #_[:ref :kindly/properties]] :any #_[:ref :clojure/value]
+       [:not [:ref :kindly/map]]]
+      #_#_:kindly/wrapped-val
+        [:and
+         {:description
+          "A plain value wrapped in a vector with Kindly
+          metadata"}
+         [:fn wrapped-value?] [:vector {:min 1 :max 1} :any]]
+      #_#_:kindly/map
+        (mu/merge
+         Kind-Properties
+         ;; the ref needs to be "pulled in" to
+         ;; the subschema here, apparently
+         [:map
+          {:registry {:clojure/value [:ref :clojure/value]}
+           :description
+           "A Kindly value as a plain Clojure
+                     map"}
+          [:code :string] [:form :any] [:value [:ref :clojure/value]]])
+      #_#_:kindly/fragment
+        [:or
+         {:description
+          "A Kindly fragment contains a sequence of Kindly
+          values"}
+         [:and [:fn kindly-metadata?] [:vector [:ref :kindly/value]]]
+         (mu/merge Kind-Properties
+                   [:map {:registry {:kindly/value [:ref :kindly/value]}}
+                    [:code :string] [:form :any] [:kind [:= :fragment]]
+                    [:value [:vector [:ref :kindly/value]]]])]
+      #_#_:clojure/value
+        [:or
+         {:description
+          "Kindly values are themselves Clojure values,
+          but not all Clojure values are Kindly values."}
+         [:and :any #_[:not [:ref :kindly/value]]]
+         [:map-of [:ref :clojure/value] [:ref :clojure/value]]
+         [:sequential [:ref :clojure/value]] [:set [:ref :clojure/value]]
+         ;; putting the refs later ensures the base case gets found and
+         ;; the stack doesn't blow up
+         [:ref :kindly/value]]}} :kindly/value]))
+
+
+(let [s (m/schema [:merge [:map [:k1 {:optional true} :boolean]]
+                   [:map [:k1 [:= true]]]]
+                  {:registry registry})]
+  (m/validate s {:k1 false}))
 
 (comment
   (m/validate [:multi {:dispatch (comp boolean meta)} [true vector?]

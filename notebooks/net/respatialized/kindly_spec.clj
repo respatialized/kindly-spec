@@ -266,17 +266,17 @@
          validator (m/validator schema)]
      {:pred #(validator (meta %)) :properties properties})))
 
-;; this implementation of compile/simple-schema may not allow for `:ref`s from
-;; local registries; when it tries to compile the schema it cannot `:ref`
-;; schemas
-;; outside the lexical scope of the `compile-meta-schema` function.
+;; ***Note:*** this implementation of compile/simple-schema may not allow for
+;; `:ref`s from
+;; local registries; when it tries to compile the schema it returns an error-
+;; `::m/invalid-ref` - which I suspect is because the ref outside the lexical
+;; scope of the `compile-meta-schema` function which calls `:m/schema`
+;; internally but may not be able to resolve the `:ref`, even when the registry
+;; is passed as an argument to `m/schema`.
 
-;; this is probably why other schemas that directly implement the
-;; `-into-schema`
-;; protocol have enormously long implementations; dereferencing the schemas
-;; appropriately sounds tricky!
-
-
+;; I don't have a clear idea of how to fix this; for the time being the
+;; recommendation for this particular implementation is "avoid using
+;; `:ref` in `Meta` schemas.
 
 (def Meta
   (m/-simple-schema {:type `Meta :min 1 :max 1 :compile compile-meta-schema}))
@@ -288,6 +288,9 @@
 (m/validate (m/schema [:and [:vector :int]
                        [Meta {:description "test"} [:map [:k :keyword]]]])
             ^{:k :abc} [1])
+
+;; In order to enable `:merge` schemas we need to pass in an additional
+;; schema registry from the `malli.util` namespace
 
 (def registry (merge (m/default-schemas) (mu/schemas)))
 

@@ -299,10 +299,9 @@
   (m/schema
    [:schema
     {:registry
-     {;; start from the top and proceed downward
-      :kindly/value [:or {:description "A Kindly value"}
-                     [:ref :kindly/meta-value] #_[:ref :kindly/wrapped-val]
-                     #_[:ref :kindly/map] #_[:ref :kindly/fragment]]
+     {:kindly/value [:or {:description "A Kindly value"}
+                     [:ref :kindly/meta-value] [:ref :kindly/wrapped-val]
+                     [:ref :kindly/map] [:ref :kindly/fragment]]
       :kindly/meta-value
       [:and {:description "A value with Kindly-specific metadata"}
        [Meta Kind-Properties] [:ref :clojure/value] [:not [:ref :kindly/map]]]
@@ -318,8 +317,6 @@
        [:vector {:min 1 :max 1} :any]]
       :kindly/map
       (m/schema [:merge Kind-Properties
-                 ;; the ref needs to be "pulled in" to
-                 ;; the subschema here, apparently
                  [:map
                   {:registry    {:clojure/value [:ref :clojure/value]}
                    :description "A Kindly value as a plain Clojure map"}

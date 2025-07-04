@@ -1,5 +1,11 @@
 ^{:nextjournal.clerk/visibility {:code :hide :result :hide}}
-(ns ^{:nextjournal.clerk/toc true} net.respatialized.kindly-spec
+(ns net.respatialized.kindly-spec
+  {:nextjournal.clerk/toc true
+   :nextjournal.clerk/open-graph
+   {:url "https://github.clerk.garden/respatialized/kindly-spec"
+    :title "A Formal Malli Specification for Kindly Values"
+    :description
+    "Moving from convention to specification with the help of a recursive schema for Kindly values."}}
   (:require [nextjournal.clerk :as clerk]
             [nextjournal.clerk.viewer :as-alias v]
             [malli.core :as m]

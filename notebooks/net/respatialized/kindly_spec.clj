@@ -296,96 +296,55 @@
   (m/schema
    [:schema
     {:registry
-     {:kindly/properties
-      (m/schema
-       [:map
-        {:description
-         "The properties required by Kindly, either as a map or in the form of metadata."}
-        [:kind {:description "The kind of the value"} :keyword]
-        [:kindly/hide-code
-         {:description "Whether to hide the source expression in the output"
-          :optional    true} :boolean]
-        [:kindly/options
-         {:description
-          "Additional options for the kind. May be kind-specific or general."
-          :optional true}
-         [:maybe
-          [:map
-           [:hide-value
-            {:optional    true
-             :description "Whether to hide the value in the output."} :boolean]
-           [:wrapped-value
-            {:optional true
-             :description
-             "Whether the value has been 'wrapped' in a vector to carry Kindly metadata"}
-            :boolean]]]]])
-      ;; start from the top and proceed downward
+     {;; start from the top and proceed downward
       :kindly/value [:or {:description "A Kindly value"}
                      [:ref :kindly/meta-value] #_[:ref :kindly/wrapped-val]
                      #_[:ref :kindly/map] #_[:ref :kindly/fragment]]
       :kindly/meta-value
       [:and {:description "A value with Kindly-specific metadata"}
-       [Meta
-        {:registry {:kindly/properties (m/deref [:ref :kindly/properties])}}
-        :map #_[:ref :kindly/properties]] :any #_[:ref :clojure/value]
-       [:not [:ref :kindly/map]]]
-      #_#_:kindly/wrapped-val
-        [:and
-         {:description
-          "A plain value wrapped in a vector with Kindly
+       [Meta Kind-Properties] [:ref :clojure/value] [:not [:ref :kindly/map]]]
+      :kindly/wrapped-val
+      [:and
+       {:description
+        "A plain value wrapped in a vector with Kindly
           metadata"}
-         [:fn wrapped-value?] [:vector {:min 1 :max 1} :any]]
-      #_#_:kindly/map
-        (mu/merge
-         Kind-Properties
-         ;; the ref needs to be "pulled in" to
-         ;; the subschema here, apparently
-         [:map
-          {:registry {:clojure/value [:ref :clojure/value]}
-           :description
-           "A Kindly value as a plain Clojure
-                     map"}
-          [:code :string] [:form :any] [:value [:ref :clojure/value]]])
-      #_#_:kindly/fragment
-        [:or
-         {:description
-          "A Kindly fragment contains a sequence of Kindly
+       [Meta
+        (m/schema [:merge Kind-Properties
+                   [:map [:kindly/options [:map [:wrapped-value [:= true]]]]]]
+                  {:registry registry})] [:fn wrapped-value?]
+       [:vector {:min 1 :max 1} :any]]
+      :kindly/map
+      (m/schema [:merge Kind-Properties
+                 ;; the ref needs to be "pulled in" to
+                 ;; the subschema here, apparently
+                 [:map
+                  {:registry    {:clojure/value [:ref :clojure/value]}
+                   :description "A Kindly value as a plain Clojure map"}
+                  [:code :string] [:form :any] [:value [:ref :clojure/value]]]]
+                {:registry registry})
+      :kindly/fragment
+      [:or
+       {:description
+        "A Kindly fragment contains a sequence of Kindly
           values"}
-         [:and [:fn kindly-metadata?] [:vector [:ref :kindly/value]]]
-         (mu/merge Kind-Properties
+       [:and [:vector [:ref :kindly/value]]]
+       [Meta
+        (m/schema [:merge Kind-Properties
                    [:map {:registry {:kindly/value [:ref :kindly/value]}}
                     [:code :string] [:form :any] [:kind [:= :fragment]]
-                    [:value [:vector [:ref :kindly/value]]]])]
-      #_#_:clojure/value
-        [:or
-         {:description
-          "Kindly values are themselves Clojure values,
+                    [:value [:vector [:ref :kindly/value]]]]]
+                  {:registry registry})]]
+      :clojure/value
+      [:or
+       {:description
+        "Kindly values are themselves Clojure values,
           but not all Clojure values are Kindly values."}
-         [:and :any #_[:not [:ref :kindly/value]]]
-         [:map-of [:ref :clojure/value] [:ref :clojure/value]]
-         [:sequential [:ref :clojure/value]] [:set [:ref :clojure/value]]
-         ;; putting the refs later ensures the base case gets found and
-         ;; the stack doesn't blow up
-         [:ref :kindly/value]]}} :kindly/value]))
+       [:and :any [:not [Meta Kind-Properties]]]
+       [:map-of [:ref :clojure/value] [:ref :clojure/value]]
+       [:sequential [:ref :clojure/value]] [:set [:ref :clojure/value]]
+       ;; putting the refs later ensures the base case gets found and
+       ;; the stack doesn't blow up
+       [:ref :kindly/value]]}} :kindly/value]
+   {:registry registry}))
 
-
-(let [s (m/schema [:merge [:map [:k1 {:optional true} :boolean]]
-                   [:map [:k1 [:= true]]]]
-                  {:registry registry})]
-  (m/validate s {:k1 false}))
-
-(comment
-  (m/validate [:multi {:dispatch (comp boolean meta)} [true vector?]
-               [false map?]]
-              (with-meta [1 2] {:some :thing}))
-  (m/validate [:multi {:dispatch (comp boolean meta)} [true vector?]
-               [false map?]]
-              (with-meta {1 2} {:some :thing}))
-  (m/validate [:multi {:dispatch (comp boolean meta)} [true vector?]
-               [false map?]]
-              {1 2})
-  (m/schema [:merge (m/form Kind-Properties)
-             [:map
-              {#_#_:registry {:clojure/value [:ref :clojure/value]}
-               :description "A Kindly value as a plain Clojure map"}
-              [:code :string] [:form :any] [:value :any]]]))
+(m/validate Kindly-Value-v2 example-nested-value)
